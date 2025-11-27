@@ -106,6 +106,10 @@ export default function Index() {
         Generate a product
       </s-button>
 
+      <s-section heading="Bienvenue dans l'application de gestion Pratico">
+        <s-paragraph>Dans cette application, vous pourrez...</s-paragraph>
+      </s-section>
+
       <s-section heading="Congrats on creating a new Shopify app 🎉">
         <s-paragraph>
           This embedded app template uses{" "}
