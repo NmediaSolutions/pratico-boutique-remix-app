@@ -173,6 +173,72 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         jsonCreateMag.data.metaobjectDefinitionCreate.metaobjectDefinition.id;
     }
 
+    // --- MÉTAFIELD VARIANT : NOMBRE DE NUMÉROS ---
+    // Indique combien de numéros accorder lors de l'achat de ce variant
+    const checkVariantMetafield = await admin.graphql(
+      `#graphql
+        query {
+          metafieldDefinitions(first: 1, ownerType: PRODUCTVARIANT, key: "issue_count", namespace: "custom") {
+            edges {
+              node { id }
+            }
+          }
+        }
+      `,
+    );
+
+    const jsonCheckVariantMF = await checkVariantMetafield.json();
+
+    if (jsonCheckVariantMF.data?.metafieldDefinitions?.edges?.length > 0) {
+      messages.push(`Métafield variant (Nombre de numéros) : Déjà configuré`);
+    } else {
+      const createVariantMetafield = await admin.graphql(
+        `#graphql
+          mutation CreateMetafieldDefinition($definition: MetafieldDefinitionInput!) {
+            metafieldDefinitionCreate(definition: $definition) {
+              createdDefinition { id, name }
+              userErrors { field, message }
+            }
+          }
+        `,
+        {
+          variables: {
+            definition: {
+              name: "Nombre de numéros",
+              namespace: "custom",
+              key: "issue_count",
+              description:
+                "Nombre de numéros de magazine à accorder lors de l'achat de ce variant",
+              type: "number_integer",
+              ownerType: "PRODUCTVARIANT",
+              pin: true,
+              validations: [
+                {
+                  name: "min",
+                  value: "1",
+                },
+              ],
+            },
+          },
+        },
+      );
+
+      const jsonCreateVariantMF = await createVariantMetafield.json();
+      const variantMFErrors =
+        jsonCreateVariantMF.data?.metafieldDefinitionCreate?.userErrors;
+
+      if (variantMFErrors && variantMFErrors.length > 0) {
+        return new Response(
+          JSON.stringify({ success: false, errors: variantMFErrors }),
+          {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+      messages.push(`Métafield variant (Nombre de numéros) : Créé avec succès`);
+    }
+
     // --- MÉTAFIELD PRODUIT : NUMÉROS DE MAGAZINE ---
     // Permet de lier plusieurs numéros de magazine à un produit
     const checkProductMetafield = await admin.graphql(

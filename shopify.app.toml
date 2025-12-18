@@ -19,9 +19,16 @@ api_version = "2026-01"
   topics = [ "app/scopes_update" ]
   uri = "/webhooks/app/scopes_update"
 
+  # Note: orders/paid webhook requires app approval for protected customer data
+  # In development, this webhook must be created manually via Shopify Admin
+  # See WEBHOOK_SETUP.md for instructions
+  # [[webhooks.subscriptions]]
+  # topics = [ "orders/paid" ]
+  # uri = "/webhooks/orders/paid"
+
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products,read_products,read_metaobject_definitions,write_metaobject_definitions,read_orders,read_metaobjects,read_customers"
+scopes = "write_products,read_products,read_metaobject_definitions,write_metaobject_definitions,read_orders,read_metaobjects,write_metaobjects,read_customers"
 
 [auth]
 redirect_urls = [ "https://example.com/api/auth" ]
