@@ -134,7 +134,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                   name: "Titre du numéro",
                   key: "title",
                   type: "single_line_text_field",
-                  validations: [{ name: "required", value: "true" }],
                 },
                 {
                   name: "Code de parution",
@@ -171,6 +170,74 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       // IMPORTANT : On récupère le nouvel ID
       magazineDefinitionId =
         jsonCreateMag.data.metaobjectDefinitionCreate.metaobjectDefinition.id;
+    }
+
+    // --- MÉTAFIELD PRODUCT : NUMÉROS DE MAGAZINE ASSOCIÉS ---
+    // Crée la relation bidirectionnelle avec les numéros de magazine
+    const checkProductMetafield = await admin.graphql(
+      `#graphql
+        query {
+          metafieldDefinitions(first: 1, ownerType: PRODUCT, key: "magazine_issues", namespace: "custom") {
+            edges {
+              node { id }
+            }
+          }
+        }
+      `,
+    );
+
+    const jsonCheckProductMF = await checkProductMetafield.json();
+
+    if (jsonCheckProductMF.data?.metafieldDefinitions?.edges?.length > 0) {
+      messages.push(`Métafield product (Numéros de magazine) : Déjà configuré`);
+    } else {
+      const createProductMetafield = await admin.graphql(
+        `#graphql
+          mutation CreateMetafieldDefinition($definition: MetafieldDefinitionInput!) {
+            metafieldDefinitionCreate(definition: $definition) {
+              createdDefinition { id, name }
+              userErrors { field, message }
+            }
+          }
+        `,
+        {
+          variables: {
+            definition: {
+              name: "Numéros de magazine",
+              namespace: "custom",
+              key: "magazine_issues",
+              description:
+                "Liste des numéros de magazine associés à ce produit (relation bidirectionnelle)",
+              type: "list.metaobject_reference",
+              ownerType: "PRODUCT",
+              pin: true,
+              validations: [
+                {
+                  name: "metaobject_definition_id",
+                  value: magazineDefinitionId,
+                },
+              ],
+            },
+          },
+        },
+      );
+
+      const jsonCreateProductMF = await createProductMetafield.json();
+      const productMFErrors =
+        jsonCreateProductMF.data?.metafieldDefinitionCreate?.userErrors;
+
+      if (productMFErrors && productMFErrors.length > 0) {
+        return new Response(
+          JSON.stringify({ success: false, errors: productMFErrors }),
+          {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+      messages.push(
+        `Métafield product (Numéros de magazine) : Créé avec succès`,
+      );
     }
 
     // --- MÉTAFIELD VARIANT : NOMBRE DE NUMÉROS ---
@@ -354,8 +421,8 @@ export default function SetupPage() {
       <s-section heading="Configuration des définitions de méta object">
         <s-paragraph>
           Cette fonction va créer les définitions de méta fields nécessaire au
-          bon fonctionnement de l'application. Si une définition existe déjà,
-          elle ne la créera pas une deuxième fois.
+          bon fonctionnement de l&apos;application. Si une définition existe
+          déjà, elle ne la créera pas une deuxième fois.
         </s-paragraph>
         <s-paragraph>À faire uniquement une fois.</s-paragraph>
         <Form method="post">

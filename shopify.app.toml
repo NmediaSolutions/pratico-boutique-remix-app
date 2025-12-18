@@ -26,6 +26,15 @@ api_version = "2026-01"
   # topics = [ "orders/paid" ]
   # uri = "/webhooks/orders/paid"
 
+  [[webhooks.subscriptions]]
+  topics = [ "metaobjects/update" ]
+  uri = "/webhooks/metaobjects/update"
+  filter = "type:magazine_issue"
+
+  [[webhooks.subscriptions]]
+  topics = [ "products/update" ]
+  uri = "/webhooks/products/update"
+
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "write_products,read_products,read_metaobject_definitions,write_metaobject_definitions,read_orders,read_metaobjects,write_metaobjects,read_customers"
