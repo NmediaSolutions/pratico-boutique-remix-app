@@ -1,0 +1,8 @@
+name = "order-issue-entitlements"
+api_version = "2026-01"
+uid = "e3425770-5995-6fdf-bf15-4fc396c293ea6f4b320b"
+type = "ui_extension"
+
+[[targeting]]
+target = "admin.order-details.block.render"
+module = "./src/BlockExtension.jsx"
