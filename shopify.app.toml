@@ -2,7 +2,10 @@
 
 client_id = "2141f1aa5da509dc6898971c521f6246"
 name = "pratico-boutique-remix-app"
-application_url = "https://example.com"
+# Local development
+# application_url = "https://example.com"
+# Dev
+application_url = "https://pratico-boutique-remix-app-590721662450.northamerica-northeast1.run.app/"
 embedded = true
 
 [build]
