@@ -13,6 +13,14 @@ export default function App() {
         />
         <Meta />
         <Links />
+        <script
+          type="module"
+          src="https://cdn.shopify.com/shopifycloud/app-bridge.js"
+        ></script>
+        <script
+          type="module"
+          src="https://cdn.shopify.com/shopifycloud/polaris/web-components.js"
+        ></script>
       </head>
       <body>
         <Outlet />
