@@ -43,4 +43,8 @@ api_version = "2026-01"
 scopes = "write_products,read_products,read_metaobject_definitions,write_metaobject_definitions,read_orders,read_metaobjects,write_metaobjects,read_customers"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [
+  "https://pratico-boutique-remix-app-590721662450.northamerica-northeast1.run.app/auth/callback",
+  "https://pratico-boutique-remix-app-590721662450.northamerica-northeast1.run.app/auth/shopify/callback",
+  "https://pratico-boutique-remix-app-590721662450.northamerica-northeast1.run.app/api/auth"
+]
