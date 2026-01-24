@@ -30,11 +30,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   let admin;
   let shop = "pratico-boutique-dev.myshopify.com";
-  let payload;
 
   // Lire le body avant toute chose car il ne peut être lu qu'une seule fois
   const body = await request.text();
-  payload = JSON.parse(body);
+  const payload = JSON.parse(body);
   console.log("Payload reçu pour commande:", payload.id);
 
   // Recréer un nouveau request avec le body pour l'authentification
