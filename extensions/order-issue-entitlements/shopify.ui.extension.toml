@@ -5,4 +5,4 @@ type = "ui_extension"
 
 [[targeting]]
 target = "admin.order-details.block.render"
-module = "./src/BlockExtension.jsx"
+module = "./src/BlockExtension.tsx"

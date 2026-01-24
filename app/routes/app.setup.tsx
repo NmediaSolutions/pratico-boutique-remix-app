@@ -37,77 +37,147 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       const hasProductsField = existingFields.some(
         (field: { key: string }) => field.key === "associated_products",
       );
+      const hasStatusField = existingFields.some(
+        (field: { key: string }) => field.key === "status",
+      );
 
       // Vérifier si displayNameKey est déjà défini à "title"
       const currentDisplayNameKey =
         jsonCheckMag.data.metaobjectDefinitionByType.displayNameKey;
       const needsDisplayNameUpdate = currentDisplayNameKey !== "title";
 
-      if (!hasProductsField || needsDisplayNameUpdate) {
-        // Préparer la définition de mise à jour
-        const updateDefinition: {
-          displayNameKey?: string;
-          fieldDefinitions?: {
-            create: {
-              name: string;
-              key: string;
-              type: string;
-              description: string;
-            };
-          };
-        } = {};
+      if (!hasProductsField || !hasStatusField || needsDisplayNameUpdate) {
+        const updates = [];
 
+        // Update displayNameKey if needed
         if (needsDisplayNameUpdate) {
-          updateDefinition.displayNameKey = "title";
-        }
-
-        if (!hasProductsField) {
-          updateDefinition.fieldDefinitions = {
-            create: {
-              name: "Produits associés",
-              key: "associated_products",
-              type: "list.product_reference",
-              description:
-                "Liste des produits auxquels ce numéro de magazine est associé",
-            },
-          };
-        }
-
-        // Effectuer la mise à jour
-        const updateMagazine = await admin.graphql(
-          `#graphql
-            mutation UpdateMetaobjectDefinition($id: ID!, $definition: MetaobjectDefinitionUpdateInput!) {
-              metaobjectDefinitionUpdate(id: $id, definition: $definition) {
-                metaobjectDefinition { id }
-                userErrors { field, message }
+          const updateDisplayName = await admin.graphql(
+            `#graphql
+              mutation UpdateMetaobjectDefinition($id: ID!, $definition: MetaobjectDefinitionUpdateInput!) {
+                metaobjectDefinitionUpdate(id: $id, definition: $definition) {
+                  metaobjectDefinition { id }
+                  userErrors { field, message }
+                }
               }
-            }
-          `,
-          {
-            variables: {
-              id: magazineDefinitionId,
-              definition: updateDefinition,
-            },
-          },
-        );
-        const jsonUpdateMag = await updateMagazine.json();
-        const updateErrors =
-          jsonUpdateMag.data?.metaobjectDefinitionUpdate?.userErrors;
-
-        if (updateErrors && updateErrors.length > 0) {
-          return new Response(
-            JSON.stringify({ success: false, errors: updateErrors }),
+            `,
             {
-              status: 400,
-              headers: { "Content-Type": "application/json" },
+              variables: {
+                id: magazineDefinitionId,
+                definition: {
+                  displayNameKey: "title",
+                },
+              },
             },
           );
+          const jsonUpdateDisplayName = await updateDisplayName.json();
+          const displayNameErrors =
+            jsonUpdateDisplayName.data?.metaobjectDefinitionUpdate?.userErrors;
+
+          if (displayNameErrors && displayNameErrors.length > 0) {
+            return new Response(
+              JSON.stringify({ success: false, errors: displayNameErrors }),
+              {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+              },
+            );
+          }
+          updates.push('DisplayNameKey configuré sur "title"');
         }
 
-        const updates = [];
-        if (!hasProductsField) updates.push('Champ "Produits associés" ajouté');
-        if (needsDisplayNameUpdate)
-          updates.push('DisplayNameKey configuré sur "title"');
+        // Add associated_products field if needed
+        if (!hasProductsField) {
+          const addProductsField = await admin.graphql(
+            `#graphql
+              mutation UpdateMetaobjectDefinition($id: ID!, $definition: MetaobjectDefinitionUpdateInput!) {
+                metaobjectDefinitionUpdate(id: $id, definition: $definition) {
+                  metaobjectDefinition { id }
+                  userErrors { field, message }
+                }
+              }
+            `,
+            {
+              variables: {
+                id: magazineDefinitionId,
+                definition: {
+                  fieldDefinitions: {
+                    create: {
+                      name: "Produits associés",
+                      key: "associated_products",
+                      type: "list.product_reference",
+                      description:
+                        "Liste des produits auxquels ce numéro de magazine est associé",
+                    },
+                  },
+                },
+              },
+            },
+          );
+          const jsonAddProducts = await addProductsField.json();
+          const productsErrors =
+            jsonAddProducts.data?.metaobjectDefinitionUpdate?.userErrors;
+
+          if (productsErrors && productsErrors.length > 0) {
+            return new Response(
+              JSON.stringify({ success: false, errors: productsErrors }),
+              {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+              },
+            );
+          }
+          updates.push('Champ "Produits associés" ajouté');
+        }
+
+        // Add status field if needed
+        if (!hasStatusField) {
+          const addStatusField = await admin.graphql(
+            `#graphql
+              mutation UpdateMetaobjectDefinition($id: ID!, $definition: MetaobjectDefinitionUpdateInput!) {
+                metaobjectDefinitionUpdate(id: $id, definition: $definition) {
+                  metaobjectDefinition { id }
+                  userErrors { field, message }
+                }
+              }
+            `,
+            {
+              variables: {
+                id: magazineDefinitionId,
+                definition: {
+                  fieldDefinitions: {
+                    create: {
+                      name: "Statut",
+                      key: "status",
+                      type: "single_line_text_field",
+                      description: "Statut du numéro de magazine",
+                      validations: [
+                        {
+                          name: "choices",
+                          value: JSON.stringify(["Planifié", "Envoyé"]),
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          );
+          const jsonAddStatus = await addStatusField.json();
+          const statusErrors =
+            jsonAddStatus.data?.metaobjectDefinitionUpdate?.userErrors;
+
+          if (statusErrors && statusErrors.length > 0) {
+            return new Response(
+              JSON.stringify({ success: false, errors: statusErrors }),
+              {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+              },
+            );
+          }
+          updates.push('Champ "Statut" ajouté');
+        }
+
         messages.push(`Magazine : ${updates.join(", ")}`);
       } else {
         messages.push(`Magazine : Déjà configuré avec tous les champs`);
@@ -151,6 +221,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                   type: "list.product_reference",
                   description:
                     "Liste des produits auxquels ce numéro de magazine est associé",
+                },
+                {
+                  name: "Statut",
+                  key: "status",
+                  type: "single_line_text_field",
+                  description: "Statut du numéro de magazine",
+                  validations: [
+                    {
+                      name: "choices",
+                      value: JSON.stringify(["Planifié", "Envoyé"]),
+                    },
+                  ],
                 },
               ],
             },
