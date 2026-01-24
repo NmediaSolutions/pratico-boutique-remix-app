@@ -57,7 +57,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       ) {
         const updates = [];
 
-        // Add title field if needed (must be done before setting displayNameKey)
+        // Step 1: Add title field first if it doesn't exist
         if (!hasTitleField) {
           const addTitleField = await admin.graphql(
             `#graphql
@@ -99,7 +99,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           updates.push('Champ "Titre du numéro" ajouté');
         }
 
-        // Update displayNameKey if needed (only after title field exists)
+        // Step 2: Update displayNameKey only if needed (title field now exists after step 1)
         if (needsDisplayNameUpdate) {
           const updateDisplayName = await admin.graphql(
             `#graphql
