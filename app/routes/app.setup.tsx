@@ -31,7 +31,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (jsonCheckMag.data?.metaobjectDefinitionByType) {
       magazineDefinitionId = jsonCheckMag.data.metaobjectDefinitionByType.id;
 
-      // Vérifier si le champ "associated_products" existe
+      // Vérifier si les champs nécessaires existent
       const existingFields =
         jsonCheckMag.data.metaobjectDefinitionByType.fieldDefinitions;
       const hasProductsField = existingFields.some(
@@ -40,16 +40,66 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       const hasStatusField = existingFields.some(
         (field: { key: string }) => field.key === "status",
       );
+      const hasTitleField = existingFields.some(
+        (field: { key: string }) => field.key === "title",
+      );
 
       // Vérifier si displayNameKey est déjà défini à "title"
       const currentDisplayNameKey =
         jsonCheckMag.data.metaobjectDefinitionByType.displayNameKey;
       const needsDisplayNameUpdate = currentDisplayNameKey !== "title";
 
-      if (!hasProductsField || !hasStatusField || needsDisplayNameUpdate) {
+      if (
+        !hasProductsField ||
+        !hasStatusField ||
+        !hasTitleField ||
+        needsDisplayNameUpdate
+      ) {
         const updates = [];
 
-        // Update displayNameKey if needed
+        // Step 1: Add title field first if it doesn't exist
+        if (!hasTitleField) {
+          const addTitleField = await admin.graphql(
+            `#graphql
+              mutation UpdateMetaobjectDefinition($id: ID!, $definition: MetaobjectDefinitionUpdateInput!) {
+                metaobjectDefinitionUpdate(id: $id, definition: $definition) {
+                  metaobjectDefinition { id }
+                  userErrors { field, message }
+                }
+              }
+            `,
+            {
+              variables: {
+                id: magazineDefinitionId,
+                definition: {
+                  fieldDefinitions: {
+                    create: {
+                      name: "Titre du numéro",
+                      key: "title",
+                      type: "single_line_text_field",
+                    },
+                  },
+                },
+              },
+            },
+          );
+          const jsonAddTitle = await addTitleField.json();
+          const titleErrors =
+            jsonAddTitle.data?.metaobjectDefinitionUpdate?.userErrors;
+
+          if (titleErrors && titleErrors.length > 0) {
+            return new Response(
+              JSON.stringify({ success: false, errors: titleErrors }),
+              {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+              },
+            );
+          }
+          updates.push('Champ "Titre du numéro" ajouté');
+        }
+
+        // Step 2: Update displayNameKey only if needed (title field now exists after step 1)
         if (needsDisplayNameUpdate) {
           const updateDisplayName = await admin.graphql(
             `#graphql
