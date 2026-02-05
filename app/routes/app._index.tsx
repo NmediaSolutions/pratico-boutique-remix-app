@@ -12,9 +12,7 @@ export default function Index() {
   return (
     <s-page heading="Application de gestion Pratico">
       <s-section>
-        <h2
-          style={{ fontSize: "1.5rem", fontWeight: 600, marginBottom: "1rem" }}
-        >
+        <h2 style={{ fontSize: "1.5rem", fontWeight: 600, margin: "0 0 1rem" }}>
           Bienvenue dans l&apos;application de gestion Pratico
         </h2>
         <s-paragraph>
@@ -27,7 +25,7 @@ export default function Index() {
 
       <s-section>
         <h3
-          style={{ fontSize: "1.25rem", fontWeight: 600, marginBottom: "1rem" }}
+          style={{ fontSize: "1.25rem", fontWeight: 600, margin: "0 0 1rem" }}
         >
           Pour générer un fichier de liste d&apos;expédition .CSV
         </h3>
@@ -38,7 +36,7 @@ export default function Index() {
 
       <s-section>
         <h3
-          style={{ fontSize: "1.25rem", fontWeight: 600, marginBottom: "1rem" }}
+          style={{ fontSize: "1.25rem", fontWeight: 600, margin: "0 0 1rem" }}
         >
           Pour renouveler un abonnement
         </h3>
@@ -49,7 +47,7 @@ export default function Index() {
 
       <s-section>
         <h3
-          style={{ fontSize: "1.25rem", fontWeight: 600, marginBottom: "1rem" }}
+          style={{ fontSize: "1.25rem", fontWeight: 600, margin: "0 0 1rem" }}
         >
           Pour vérifier les alertes des numéros de magazine
         </h3>
