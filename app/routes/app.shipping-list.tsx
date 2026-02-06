@@ -9,6 +9,11 @@ interface MagazineIssue {
   displayName: string;
   title: string;
   status: string;
+  publicationCode: string;
+  associatedProducts: Array<{
+    id: string;
+    title: string;
+  }>;
 }
 
 interface LoaderData {
@@ -44,6 +49,22 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
               fields {
                 key
                 value
+                reference {
+                  ... on Product {
+                    id
+                    title
+                  }
+                }
+                references(first: 10) {
+                  edges {
+                    node {
+                      ... on Product {
+                        id
+                        title
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -67,6 +88,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   interface MetaobjectField {
     key: string;
     value?: string;
+    references?: {
+      edges: Array<{
+        node: {
+          id?: string;
+          title?: string;
+        };
+      }>;
+    };
   }
 
   interface MetaobjectEdge {
@@ -81,11 +110,35 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     data?.edges?.map((edge: MetaobjectEdge) => {
       const titleField = edge.node.fields.find((f) => f.key === "title");
       const statusField = edge.node.fields.find((f) => f.key === "status");
+      const publicationCodeField = edge.node.fields.find(
+        (f) => f.key === "publication_code",
+      );
+      const associatedProductsField = edge.node.fields.find(
+        (f) => f.key === "associated_products",
+      );
+
+      // Extract products from references
+      const products: Array<{ id: string; title: string }> = [];
+      if (associatedProductsField?.references?.edges) {
+        associatedProductsField.references.edges.forEach(
+          (refEdge: { node: { id?: string; title?: string } }) => {
+            if (refEdge.node?.id && refEdge.node?.title) {
+              products.push({
+                id: refEdge.node.id,
+                title: refEdge.node.title,
+              });
+            }
+          },
+        );
+      }
+
       return {
         id: edge.node.id,
         displayName: edge.node.displayName || titleField?.value || "Sans titre",
         title: titleField?.value || "Sans titre",
         status: statusField?.value || "",
+        publicationCode: publicationCodeField?.value || "",
+        associatedProducts: products,
       };
     }) || [];
 
@@ -137,8 +190,12 @@ async function generateCSV(
     };
   }
 
-  // Collect all entitlements with customer references
-  const allEntitlements: Array<{ customerId: string }> = [];
+  // Collect all entitlements with customer references and subscription info
+  const allEntitlements: Array<{
+    customerId: string;
+    subscriptionId: string | null;
+    entitlementId: string;
+  }> = [];
   let hasNextPage = true;
   let cursor: string | null = null;
 
@@ -198,6 +255,9 @@ async function generateCSV(
         const customerField = edge.node.fields.find(
           (f: EntitlementField) => f.key === "customer",
         );
+        const subscriptionField = edge.node.fields.find(
+          (f: EntitlementField) => f.key === "subscription",
+        );
 
         if (
           magazineField?.reference?.id === magazineId &&
@@ -206,6 +266,8 @@ async function generateCSV(
         ) {
           allEntitlements.push({
             customerId: customerField.reference.id,
+            subscriptionId: subscriptionField?.reference?.id || null,
+            entitlementId: edge.node.id,
           });
         }
       });
@@ -219,6 +281,120 @@ async function generateCSV(
     return new Response("Aucun destinataire trouvé pour ce magazine", {
       status: 404,
     });
+  }
+
+  // Build maps for subscription data
+  const subscriptionFirstIssueMap = new Map<string, string>();
+  const subscriptionEntitlementsMap = new Map<string, string[]>(); // subscription -> sorted entitlement IDs
+  const subscriptionStartDateMap = new Map<string, string>(); // subscription -> start_date
+
+  // Get unique subscription IDs
+  const uniqueSubscriptionIds = [
+    ...new Set(
+      allEntitlements
+        .map((e) => e.subscriptionId)
+        .filter((id): id is string => id !== null),
+    ),
+  ];
+
+  // Define interface for subscription entitlement edges
+  interface SubscriptionEntitlementEdge {
+    node: {
+      id: string;
+      magazineIssue?: {
+        reference?: {
+          id: string;
+          exportDate?: {
+            value: string;
+          };
+        };
+      };
+    };
+  }
+
+  // For each subscription, fetch all its entitlements and determine the first issue
+  for (const subscriptionId of uniqueSubscriptionIds) {
+    try {
+      const subscriptionResponse = await admin.graphql(
+        `#graphql
+          query GetSubscriptionEntitlements($id: ID!) {
+            metaobject(id: $id) {
+              id
+              startDate: field(key: "start_date") {
+                value
+              }
+              issueEntitlements: field(key: "issue_entitlements") {
+                references(first: 250) {
+                  edges {
+                    node {
+                      ... on Metaobject {
+                        id
+                        magazineIssue: field(key: "magazine_issue") {
+                          reference {
+                            ... on Metaobject {
+                              id
+                              exportDate: field(key: "export_date") {
+                                value
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        `,
+        {
+          variables: {
+            id: subscriptionId,
+          },
+        },
+      );
+
+      const subscriptionData = await subscriptionResponse.json();
+      const subscriptionMetaobject = subscriptionData.data?.metaobject;
+      const entitlements: SubscriptionEntitlementEdge[] =
+        subscriptionMetaobject?.issueEntitlements?.references?.edges || [];
+
+      // Store the subscription start date
+      const startDate = subscriptionMetaobject?.startDate?.value;
+      if (startDate) {
+        subscriptionStartDateMap.set(subscriptionId, startDate);
+      }
+
+      // Sort entitlements by magazine issue export date
+      const sortedEntitlements = entitlements
+        .filter(
+          (edge: SubscriptionEntitlementEdge) =>
+            edge.node?.magazineIssue?.reference?.exportDate?.value,
+        )
+        .sort(
+          (a: SubscriptionEntitlementEdge, b: SubscriptionEntitlementEdge) => {
+            const dateA = new Date(
+              a.node.magazineIssue!.reference!.exportDate!.value,
+            ).getTime();
+            const dateB = new Date(
+              b.node.magazineIssue!.reference!.exportDate!.value,
+            ).getTime();
+            return dateA - dateB;
+          },
+        );
+
+      // Store the first entitlement ID and all sorted entitlement IDs
+      if (sortedEntitlements.length > 0) {
+        const firstEntitlementId = sortedEntitlements[0].node.id;
+        subscriptionFirstIssueMap.set(subscriptionId, firstEntitlementId);
+
+        // Store all entitlement IDs in sorted order
+        const entitlementIds = sortedEntitlements.map((edge) => edge.node.id);
+        subscriptionEntitlementsMap.set(subscriptionId, entitlementIds);
+      }
+    } catch (error) {
+      console.error(`Error fetching subscription ${subscriptionId}:`, error);
+    }
   }
 
   // Fetch customer details in batches
@@ -291,7 +467,7 @@ async function generateCSV(
     const customerData = await customerResponse.json();
     const customers = customerData.data?.nodes || [];
 
-    customers.forEach((customer: CustomerData) => {
+    customers.forEach((customer: CustomerData, index: number) => {
       if (!customer) return;
 
       // Get address - use defaultAddress
@@ -300,6 +476,44 @@ async function generateCSV(
       if (!address) {
         console.warn(`No address found for customer ${customer.id}`);
         return;
+      }
+
+      // Find the corresponding entitlement from the batch
+      const entitlement = batch[index];
+
+      // Determine if this is the first issue of the subscription
+      let isFirstIssue = false;
+      let relanceValue = ""; // Default: empty
+
+      if (entitlement.subscriptionId) {
+        const firstIssueId = subscriptionFirstIssueMap.get(
+          entitlement.subscriptionId,
+        );
+        isFirstIssue = firstIssueId === entitlement.entitlementId;
+
+        // Calculate Relance value
+        const sortedEntitlementIds = subscriptionEntitlementsMap.get(
+          entitlement.subscriptionId,
+        );
+
+        if (sortedEntitlementIds && sortedEntitlementIds.length > 0) {
+          const currentIndex = sortedEntitlementIds.indexOf(
+            entitlement.entitlementId,
+          );
+          const lastIndex = sortedEntitlementIds.length - 1;
+
+          if (currentIndex !== -1) {
+            // If this is the second-to-last issue (1 issue remaining after this one)
+            if (currentIndex === lastIndex - 1) {
+              relanceValue = "1"; // 1re relance
+            }
+            // If this is the last issue
+            else if (currentIndex === lastIndex) {
+              relanceValue = "2"; // 2e relance
+            }
+            // Otherwise, relanceValue remains empty
+          }
+        }
       }
 
       // Extract customer ID number
@@ -321,8 +535,20 @@ async function generateCSV(
         language = "2";
       }
 
-      // Format date - use current date since createdAt is not available on metaobjects
-      const dateStr = new Date().toISOString().slice(0, 16).replace("T", " ");
+      // Get subscription start date or use current date as fallback
+      let dateStr = new Date().toISOString().slice(0, 16).replace("T", " ");
+      if (entitlement.subscriptionId) {
+        const subscriptionStartDate = subscriptionStartDateMap.get(
+          entitlement.subscriptionId,
+        );
+        if (subscriptionStartDate) {
+          // Format the date from ISO format to "YYYY-MM-DD HH:MM" format
+          dateStr = new Date(subscriptionStartDate)
+            .toISOString()
+            .slice(0, 16)
+            .replace("T", " ");
+        }
+      }
 
       // Build CSV row with all 20 columns
       const row = [
@@ -341,8 +567,8 @@ async function generateCSV(
         "1", // 13. nbr copies
         "", // 14. source
         language, // 15. langue
-        "", // 16. Lettre de bienvenue (MVP - empty)
-        "", // 17. Relance (MVP - empty)
+        isFirstIssue ? "1" : "", // 16. Lettre de bienvenue - 1 if first issue of subscription
+        relanceValue, // 17. Relance - 1 if second-to-last, 2 if last, empty otherwise
         "", // 18. Lettre de bienvenue (Offre or)
         "", // 19. Relance (Offre or)
         dateStr, // 20. Date abonnement
@@ -352,10 +578,24 @@ async function generateCSV(
     });
   }
 
-  // Add totals footer (MVP - all zeros)
-  csvRows.push(";;;;;;;;;;;;0;;;;;"); // Total welcome letters = 0
-  csvRows.push(";;;;;;;;;;;;0;;;;;"); // Total 1st reminders = 0
-  csvRows.push(";;;;;;;;;;;;0;;;;;"); // Total 2nd reminders = 0
+  // Calculate totals for footer
+  let totalWelcomeLetters = 0;
+  let totalFirstReminders = 0;
+  let totalSecondReminders = 0;
+
+  csvRows.forEach((row) => {
+    const columns = row.split(";");
+    // Column 16 (index 15) is welcome letter
+    if (columns[15] === "1") totalWelcomeLetters++;
+    // Column 17 (index 16) is Relance
+    if (columns[16] === "1") totalFirstReminders++;
+    if (columns[16] === "2") totalSecondReminders++;
+  });
+
+  // Add totals footer
+  csvRows.push(`;;;;;;;;;;;;${totalWelcomeLetters};;;;;`); // Total welcome letters
+  csvRows.push(`;;;;;;;;;;;;${totalFirstReminders};;;;;`); // Total 1st reminders (Relance = 1)
+  csvRows.push(`;;;;;;;;;;;;${totalSecondReminders};;;;;`); // Total 2nd reminders (Relance = 2)
 
   // Combine all rows with header
   const header = [
@@ -534,23 +774,64 @@ export default function ShippingListPage() {
   const [selectedMagazineId, setSelectedMagazineId] = useState("");
   const [allMagazines, setAllMagazines] = useState<MagazineIssue[]>(magazines);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showDropdown, setShowDropdown] = useState(false);
 
   const isLoadingCount =
     fetcher.state === "submitting" || fetcher.state === "loading";
   const isGeneratingCSV =
     csvFetcher.state === "submitting" || csvFetcher.state === "loading";
 
-  const handleMagazineChange = (magazineId: string) => {
+  // Filter magazines based on search query
+  const filteredMagazines = allMagazines.filter((magazine) => {
+    if (!searchQuery.trim()) return true;
+
+    const query = searchQuery.toLowerCase();
+
+    // Search in magazine title/displayName
+    if (magazine.displayName.toLowerCase().includes(query)) return true;
+    if (magazine.title.toLowerCase().includes(query)) return true;
+
+    // Search in publication code
+    if (magazine.publicationCode.toLowerCase().includes(query)) return true;
+
+    // Search in associated products
+    if (
+      magazine.associatedProducts.some((product) =>
+        product.title.toLowerCase().includes(query),
+      )
+    )
+      return true;
+
+    return false;
+  });
+
+  const handleMagazineSelect = (magazineId: string) => {
     setSelectedMagazineId(magazineId);
-    if (magazineId) {
-      const magazine = allMagazines.find((m) => m.id === magazineId);
-      if (magazine) {
-        const formData = new FormData();
-        formData.append("magazineId", magazineId);
-        formData.append("magazineTitle", magazine.title);
-        fetcher.submit(formData, { method: "POST" });
-      }
+    const magazine = allMagazines.find((m) => m.id === magazineId);
+    if (magazine) {
+      setSearchQuery(magazine.displayName);
+      setShowDropdown(false);
+      const formData = new FormData();
+      formData.append("magazineId", magazineId);
+      formData.append("magazineTitle", magazine.title);
+      fetcher.submit(formData, { method: "POST" });
     }
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    setShowDropdown(true);
+    // Clear selection when user starts typing
+    if (selectedMagazineId) {
+      setSelectedMagazineId("");
+    }
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery("");
+    setSelectedMagazineId("");
+    setShowDropdown(false);
   };
 
   const loadMoreMagazines = () => {
@@ -620,229 +901,379 @@ export default function ShippingListPage() {
   }, [csvFetcher.data]);
 
   return (
-    <s-page heading="Générateur de liste d'expédition">
-      <s-section>
-        <s-paragraph>
-          Sélectionnez un numéro de magazine planifié pour voir le nombre total
-          d&apos;abonnés qui ont droit à ce numéro.
-        </s-paragraph>
+    <>
+      <style>{`
+        .magazine-dropdown-item:hover {
+          background-color: #f9fafb !important;
+        }
+      `}</style>
+      <s-page heading="Générateur de liste d'expédition">
+        <div
+          style={{
+            padding: "1.25rem",
+            boxShadow:
+              "0rem 0.3125rem 0.3125rem -0.15625rem rgba(0, 0, 0, 0.03), 0rem 0.1875rem 0.1875rem -0.09375rem rgba(0, 0, 0, 0.02), 0rem 0.125rem 0.125rem -0.0625rem rgba(0, 0, 0, 0.02), 0rem 0.0625rem 0.0625rem -0.03125rem rgba(0, 0, 0, 0.03), 0rem 0.03125rem 0.03125rem 0rem rgba(0, 0, 0, 0.04), 0rem 0rem 0rem 0.0625rem rgba(0, 0, 0, 0.06)",
+            borderRadius: "0.75rem",
+            backgroundColor: "rgba(255, 255, 255, 1)",
+          }}
+        >
+          <s-paragraph>
+            Sélectionnez un numéro de magazine planifié pour voir le nombre
+            total d&apos;abonnés qui ont droit à ce numéro.
+          </s-paragraph>
 
-        {allMagazines.length === 0 && (
-          <div
-            style={{
-              marginTop: "20px",
-              padding: "20px",
-              backgroundColor: "#fff4e6",
-              borderRadius: "8px",
-              border: "1px solid #ffa726",
-            }}
-          >
-            <s-paragraph>
-              <strong>
-                Aucun magazine avec le statut &quot;Planifié&quot; trouvé
-              </strong>
-            </s-paragraph>
-            <s-paragraph>Pour utiliser cette fonctionnalité :</s-paragraph>
-            <ol style={{ marginLeft: "20px", marginTop: "10px" }}>
-              <li style={{ marginBottom: "8px" }}>
-                Exécutez la configuration sur la{" "}
-                <a href="/app/setup" style={{ color: "#0066cc" }}>
-                  page Setup
-                </a>{" "}
-                pour ajouter le champ &quot;Statut&quot;
-              </li>
-              <li style={{ marginBottom: "8px" }}>
-                Dans Shopify Admin, allez dans vos &quot;Numéros de
-                magazine&quot;
-              </li>
-              <li style={{ marginBottom: "8px" }}>
-                Modifiez chaque numéro et définissez le statut à
-                &quot;Planifié&quot;
-              </li>
-            </ol>
-          </div>
-        )}
-
-        <div style={{ marginTop: "20px" }}>
-          <s-stack direction="block" gap="base">
-            <div>
-              <label
-                htmlFor="magazine-select"
-                style={{
-                  display: "block",
-                  marginBottom: "8px",
-                  fontWeight: "500",
-                }}
-              >
-                Numéro de magazine
-              </label>
-              <select
-                id="magazine-select"
-                value={selectedMagazineId}
-                onChange={(e) => handleMagazineChange(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "8px 12px",
-                  fontSize: "14px",
-                  border: "1px solid #c9cccf",
-                  borderRadius: "8px",
-                  backgroundColor: "white",
-                  cursor: "pointer",
-                }}
-              >
-                <option value="">-- Sélectionnez un numéro --</option>
-                {allMagazines.map((magazine) => (
-                  <option key={magazine.id} value={magazine.id}>
-                    {magazine.displayName}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {hasNextPage && (
-              <s-button onClick={loadMoreMagazines} variant="tertiary">
-                Charger plus de magazines
-              </s-button>
-            )}
-          </s-stack>
-        </div>
-
-        {isLoadingCount && (
-          <div style={{ marginTop: "20px" }}>
-            <s-spinner />
-            <s-paragraph>Calcul en cours...</s-paragraph>
-          </div>
-        )}
-
-        {fetcher.data && !isLoadingCount && (
-          <div
-            style={{
-              marginTop: "20px",
-              padding: "20px",
-              backgroundColor: "#f9fafb",
-              borderRadius: "8px",
-              border: "1px solid #e1e3e5",
-            }}
-          >
-            <s-stack direction="block" gap="base">
-              <s-heading>Résultat</s-heading>
-              <s-paragraph>
-                <strong>Numéro :</strong> {fetcher.data.magazineTitle}
-              </s-paragraph>
-              <s-paragraph>
-                <strong>
-                  {formatNumber(fetcher.data.count)} destinataires prévus
-                </strong>
-              </s-paragraph>
-
-              <div style={{ marginTop: "16px" }}>
-                <s-button
-                  onClick={handleGenerateCSV}
-                  variant="primary"
-                  disabled={isGeneratingCSV}
-                >
-                  {isGeneratingCSV
-                    ? "Génération en cours..."
-                    : "Générer le fichier de test (CSV)"}
-                </s-button>
-              </div>
-
-              <div
-                style={{
-                  marginTop: "12px",
-                  padding: "12px",
-                  backgroundColor: "#e3f2fd",
-                  borderRadius: "6px",
-                  fontSize: "13px",
-                }}
-              >
-                <s-paragraph>
-                  <strong>Note :</strong> Si l&apos;adresse de livraison est
-                  manquante, l&apos;adresse de facturation sera utilisée.
-                </s-paragraph>
-              </div>
-            </s-stack>
-          </div>
-        )}
-
-        {/* Confirmation Dialog */}
-        {showConfirmDialog && (
-          <div
-            style={{
-              position: "fixed",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: "rgba(0, 0, 0, 0.5)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              zIndex: 9999,
-            }}
-          >
+          {allMagazines.length === 0 && (
             <div
-              role="dialog"
-              aria-modal="true"
               style={{
-                backgroundColor: "white",
-                padding: "24px",
-                borderRadius: "12px",
-                maxWidth: "500px",
-                width: "90%",
-                boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+                marginTop: "20px",
+                padding: "20px",
+                backgroundColor: "#fff4e6",
+                borderRadius: "8px",
+                border: "1px solid #ffa726",
               }}
             >
-              <s-heading>Confirmer la génération</s-heading>
-              <div style={{ marginTop: "16px", marginBottom: "24px" }}>
+              <s-paragraph>
+                <strong>
+                  Aucun magazine avec le statut &quot;Planifié&quot; trouvé
+                </strong>
+              </s-paragraph>
+              <s-paragraph>Pour utiliser cette fonctionnalité :</s-paragraph>
+              <ol style={{ marginLeft: "20px", marginTop: "10px" }}>
+                <li style={{ marginBottom: "8px" }}>
+                  Exécutez la configuration sur la{" "}
+                  <a href="/app/setup" style={{ color: "#0066cc" }}>
+                    page Setup
+                  </a>{" "}
+                  pour ajouter le champ &quot;Statut&quot;
+                </li>
+                <li style={{ marginBottom: "8px" }}>
+                  Dans Shopify Admin, allez dans vos &quot;Numéros de
+                  magazine&quot;
+                </li>
+                <li style={{ marginBottom: "8px" }}>
+                  Modifiez chaque numéro et définissez le statut à
+                  &quot;Planifié&quot;
+                </li>
+              </ol>
+            </div>
+          )}
+
+          <div style={{ marginTop: "20px" }}>
+            <s-stack direction="block" gap="base">
+              <div style={{ position: "relative" }}>
+                <label
+                  htmlFor="magazine-search"
+                  style={{
+                    display: "block",
+                    marginBottom: "8px",
+                    fontWeight: "500",
+                  }}
+                >
+                  Rechercher un numéro de magazine
+                </label>
+                <div style={{ position: "relative" }}>
+                  <input
+                    id="magazine-search"
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => handleSearchChange(e.target.value)}
+                    onFocus={() => setShowDropdown(true)}
+                    onBlur={() => {
+                      // Delay hiding dropdown to allow click events to fire first
+                      setTimeout(() => setShowDropdown(false), 200);
+                    }}
+                    placeholder="Rechercher par nom, code de parution ou produit..."
+                    style={{
+                      width: "100%",
+                      padding: "8px 40px 8px 12px",
+                      fontSize: "14px",
+                      border: "1px solid #c9cccf",
+                      borderRadius: "8px",
+                      backgroundColor: "white",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={handleClearSearch}
+                      style={{
+                        position: "absolute",
+                        right: "8px",
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: "4px 8px",
+                        fontSize: "18px",
+                        color: "#666",
+                      }}
+                      aria-label="Effacer la recherche"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                {showDropdown && filteredMagazines.length > 0 && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "100%",
+                      left: 0,
+                      right: 0,
+                      marginTop: "4px",
+                      backgroundColor: "white",
+                      border: "1px solid #c9cccf",
+                      borderRadius: "8px",
+                      maxHeight: "300px",
+                      overflowY: "auto",
+                      boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
+                      zIndex: 1000,
+                    }}
+                  >
+                    <div
+                      style={{
+                        padding: "8px 12px",
+                        fontSize: "12px",
+                        color: "#666",
+                        borderBottom: "1px solid #e1e3e5",
+                      }}
+                    >
+                      {filteredMagazines.length} résultat
+                      {filteredMagazines.length > 1 ? "s" : ""} trouvé
+                      {filteredMagazines.length > 1 ? "s" : ""}
+                    </div>
+                    {filteredMagazines.map((magazine) => (
+                      <div
+                        key={magazine.id}
+                        role="button"
+                        tabIndex={0}
+                        onMouseDown={(e) => {
+                          // Prevent input from losing focus when clicking dropdown
+                          e.preventDefault();
+                          handleMagazineSelect(magazine.id);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            handleMagazineSelect(magazine.id);
+                          }
+                        }}
+                        className="magazine-dropdown-item"
+                        style={{
+                          padding: "12px",
+                          cursor: "pointer",
+                          borderBottom: "1px solid #f0f0f0",
+                          backgroundColor:
+                            magazine.id === selectedMagazineId
+                              ? "#f0f7ff"
+                              : "white",
+                          transition: "background-color 0.2s ease",
+                        }}
+                      >
+                        <div style={{ fontWeight: "500", marginBottom: "4px" }}>
+                          {magazine.displayName}
+                        </div>
+                        {magazine.publicationCode && (
+                          <div style={{ fontSize: "12px", color: "#666" }}>
+                            Code: {magazine.publicationCode}
+                          </div>
+                        )}
+                        {magazine.associatedProducts.length > 0 && (
+                          <div
+                            style={{
+                              fontSize: "12px",
+                              color: "#666",
+                              marginTop: "2px",
+                            }}
+                          >
+                            Produit
+                            {magazine.associatedProducts.length > 1
+                              ? "s"
+                              : ""}:{" "}
+                            {magazine.associatedProducts
+                              .map((p) => p.title)
+                              .join(", ")}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {showDropdown &&
+                  searchQuery &&
+                  filteredMagazines.length === 0 && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "100%",
+                        left: 0,
+                        right: 0,
+                        marginTop: "4px",
+                        backgroundColor: "white",
+                        border: "1px solid #c9cccf",
+                        borderRadius: "8px",
+                        padding: "16px",
+                        boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
+                        zIndex: 1000,
+                        textAlign: "center",
+                        color: "#666",
+                      }}
+                    >
+                      Aucun résultat trouvé
+                    </div>
+                  )}
+              </div>
+
+              {hasNextPage && (
+                <s-button onClick={loadMoreMagazines} variant="tertiary">
+                  Charger plus de magazines
+                </s-button>
+              )}
+            </s-stack>
+          </div>
+
+          {isLoadingCount && (
+            <div style={{ marginTop: "20px" }}>
+              <s-spinner />
+              <s-paragraph>Calcul en cours...</s-paragraph>
+            </div>
+          )}
+
+          {fetcher.data && !isLoadingCount && (
+            <div
+              style={{
+                marginTop: "20px",
+                padding: "20px",
+                backgroundColor: "#f9fafb",
+                borderRadius: "8px",
+                border: "1px solid #e1e3e5",
+              }}
+            >
+              <s-stack direction="block" gap="base">
+                <s-heading>Résultat</s-heading>
                 <s-paragraph>
-                  Voulez-vous vraiment générer le fichier CSV pour ce magazine ?
+                  <strong>Numéro :</strong> {fetcher.data.magazineTitle}
                 </s-paragraph>
-                <div style={{ marginTop: "8px" }}>
+                <s-paragraph>
+                  <strong>
+                    {formatNumber(fetcher.data.count)} destinataires prévus
+                  </strong>
+                </s-paragraph>
+
+                <div style={{ marginTop: "16px" }}>
+                  <s-button
+                    onClick={handleGenerateCSV}
+                    variant="primary"
+                    disabled={isGeneratingCSV}
+                  >
+                    {isGeneratingCSV
+                      ? "Génération en cours..."
+                      : "Générer le fichier de test (CSV)"}
+                  </s-button>
+                </div>
+
+                <div
+                  style={{
+                    marginTop: "12px",
+                    padding: "12px",
+                    backgroundColor: "#e3f2fd",
+                    borderRadius: "6px",
+                    fontSize: "13px",
+                  }}
+                >
                   <s-paragraph>
-                    Le fichier contiendra {fetcher.data?.count || 0}{" "}
-                    destinataires.
+                    <strong>Note :</strong> Si l&apos;adresse de livraison est
+                    manquante, l&apos;adresse de facturation sera utilisée.
                   </s-paragraph>
                 </div>
-              </div>
+              </s-stack>
+            </div>
+          )}
+
+          {/* Confirmation Dialog */}
+          {showConfirmDialog && (
+            <div
+              style={{
+                position: "fixed",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: "rgba(0, 0, 0, 0.5)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 9999,
+              }}
+            >
               <div
+                role="dialog"
+                aria-modal="true"
                 style={{
-                  display: "flex",
-                  gap: "12px",
-                  justifyContent: "flex-end",
+                  backgroundColor: "white",
+                  padding: "24px",
+                  borderRadius: "12px",
+                  maxWidth: "500px",
+                  width: "90%",
+                  boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
                 }}
               >
-                <s-button onClick={cancelGenerateCSV} variant="secondary">
-                  Annuler
-                </s-button>
-                <s-button onClick={confirmGenerateCSV} variant="primary">
-                  Générer le CSV
-                </s-button>
+                <s-heading>Confirmer la génération</s-heading>
+                <div style={{ marginTop: "16px", marginBottom: "24px" }}>
+                  <s-paragraph>
+                    Voulez-vous vraiment générer le fichier CSV pour ce magazine
+                    ?
+                  </s-paragraph>
+                  <div style={{ marginTop: "8px" }}>
+                    <s-paragraph>
+                      Le fichier contiendra {fetcher.data?.count || 0}{" "}
+                      destinataires.
+                    </s-paragraph>
+                  </div>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "12px",
+                    justifyContent: "flex-end",
+                  }}
+                >
+                  <s-button onClick={cancelGenerateCSV} variant="secondary">
+                    Annuler
+                  </s-button>
+                  <s-button onClick={confirmGenerateCSV} variant="primary">
+                    Générer le CSV
+                  </s-button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {!selectedMagazineId && !fetcher.data && (
-          <div style={{ marginTop: "20px" }}>
-            <s-paragraph>
-              Veuillez sélectionner un numéro de magazine pour voir le nombre de
-              destinataires.
-            </s-paragraph>
-          </div>
-        )}
-      </s-section>
+          {!selectedMagazineId && !fetcher.data && (
+            <div style={{ marginTop: "20px" }}>
+              <s-paragraph>
+                Veuillez sélectionner un numéro de magazine pour voir le nombre
+                de destinataires.
+              </s-paragraph>
+            </div>
+          )}
+        </div>
 
-      <s-section slot="aside" heading="À propos">
-        <s-paragraph>
-          Cette page vous permet de valider rapidement l&apos;envergure
-          d&apos;un envoi avant de générer le fichier d&apos;expédition complet.
-        </s-paragraph>
-        <s-paragraph>
-          Seuls les droits au numéro avec le statut &quot;Actif&quot; sont
-          comptabilisés.
-        </s-paragraph>
-      </s-section>
-    </s-page>
+        <s-section slot="aside" heading="À propos">
+          <s-paragraph>
+            Cette page vous permet de valider rapidement l&apos;envergure
+            d&apos;un envoi avant de générer le fichier d&apos;expédition
+            complet.
+          </s-paragraph>
+          <s-paragraph>
+            Seuls les droits au numéro avec le statut &quot;Actif&quot; sont
+            comptabilisés.
+          </s-paragraph>
+        </s-section>
+      </s-page>
+    </>
   );
 }

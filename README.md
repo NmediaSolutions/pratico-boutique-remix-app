@@ -10,6 +10,13 @@
 - Faire `pnpm i` dans la console
 - Faire `pnpm dev` pour rouler le projet.
 
+### Tester les webhooks en dev
+
+- Copier l'url de preview cloudflare qui apparait dans la console
+- Dans le shopify de votre boutique dev, aller dans `settings`, `Notifications`, puis `Webhooks`.
+- Créer un nouveau webhook avec l'événement `Order payment` ou éditez celui existant. Vous devez mettre l'url du domaine cloudflare et s'assurer que la path soit `/webhooks/orders/paid`. La version d'API est `2026-01 (Latest)`
+  ![alt text](image-1.png)
+
 ## Déployer l'app
 
 - L'app est déployée automatiquement lorsqu'un push est effectué dans main

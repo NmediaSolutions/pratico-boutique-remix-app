@@ -6,6 +6,9 @@ import {
   InlineStack,
   Badge,
   Box,
+  Divider,
+  Link,
+  Heading,
 } from "@shopify/ui-extensions/admin";
 
 interface MetaobjectField {
@@ -43,7 +46,7 @@ export default extension("admin.order-details.block.render", (root, api) => {
   const { data } = api;
 
   root.appendChild(
-    root.createComponent(AdminBlock, { title: "Droits au numéro" }, [
+    root.createComponent(AdminBlock, { title: "Pratico App" }, [
       root.createComponent(BlockStack, { gap: "base" }, [
         root.createComponent(Text, {}, "Chargement..."),
       ]),
@@ -53,7 +56,7 @@ export default extension("admin.order-details.block.render", (root, api) => {
   const orderId = data.selected[0]?.id;
   if (!orderId) {
     root.replaceChildren(
-      root.createComponent(AdminBlock, { title: "Droits au numéro" }, [
+      root.createComponent(AdminBlock, { title: "Pratico App" }, [
         root.createComponent(
           Text,
           {},
@@ -108,7 +111,7 @@ export default extension("admin.order-details.block.render", (root, api) => {
 
       if (items.length === 0) {
         root.replaceChildren(
-          root.createComponent(AdminBlock, { title: "Droits au numéro" }, [
+          root.createComponent(AdminBlock, { title: "Pratico App" }, [
             root.createComponent(
               Text,
               {},
@@ -117,36 +120,52 @@ export default extension("admin.order-details.block.render", (root, api) => {
           ]),
         );
       } else {
-        const rows = items.map((e) =>
-          root.createComponent(InlineStack, { gap: "base" }, [
-            root.createComponent(Box, { minInlineSize: "30%" }, [
+        const rows = items.map((e) => {
+          // Extract the numeric ID from the GID (e.g., "gid://shopify/Metaobject/123456789" -> "123456789")
+          const numericId = e.id.split("/").pop() || "";
+          // Create a shortened display ID (show last 8 characters)
+          const displayId =
+            numericId.length > 8 ? "..." + numericId.slice(-8) : numericId;
+          // Construct the URL to the metaobject
+          const metaobjectUrl = `shopify://admin/content/entries/issue_entitlement/${numericId}`;
+
+          return root.createComponent(InlineStack, { gap: "base" }, [
+            root.createComponent(Box, { minInlineSize: "25%" }, [
               root.createComponent(Text, {}, e.customer),
             ]),
-            root.createComponent(Box, { minInlineSize: "40%" }, [
+            root.createComponent(Box, { minInlineSize: "35%" }, [
               root.createComponent(Text, {}, e.magazine),
             ]),
-            root.createComponent(Box, { minInlineSize: "20%" }, [
+            root.createComponent(Box, { minInlineSize: "15%" }, [
               root.createComponent(
                 Badge,
                 { tone: getTone(e.status) },
                 e.status,
               ),
             ]),
-          ]),
-        );
+            root.createComponent(Box, { minInlineSize: "15%" }, [
+              root.createComponent(Link, { to: metaobjectUrl }, displayId),
+            ]),
+          ]);
+        });
 
         root.replaceChildren(
-          root.createComponent(AdminBlock, { title: "Droits au numéro" }, [
+          root.createComponent(AdminBlock, { title: "Pratico App" }, [
             root.createComponent(BlockStack, { gap: "base" }, [
+              root.createComponent(Heading, { size: 3 }, "Droits aux numéros"),
+              root.createComponent(Divider),
               root.createComponent(InlineStack, { gap: "base" }, [
-                root.createComponent(Box, { minInlineSize: "30%" }, [
-                  root.createComponent(Text, { fontWeight: "bold" }, "Client"),
+                root.createComponent(Box, { minInlineSize: "25%" }, [
+                  root.createComponent(Heading, { size: 4 }, "Client"),
                 ]),
-                root.createComponent(Box, { minInlineSize: "40%" }, [
-                  root.createComponent(Text, { fontWeight: "bold" }, "Numéro"),
+                root.createComponent(Box, { minInlineSize: "35%" }, [
+                  root.createComponent(Heading, { size: 4 }, "Numéro"),
                 ]),
-                root.createComponent(Box, { minInlineSize: "20%" }, [
-                  root.createComponent(Text, { fontWeight: "bold" }, "Statut"),
+                root.createComponent(Box, { minInlineSize: "15%" }, [
+                  root.createComponent(Heading, { size: 4 }, "Statut"),
+                ]),
+                root.createComponent(Box, { minInlineSize: "15%" }, [
+                  root.createComponent(Heading, { size: 4 }, "ID"),
                 ]),
               ]),
               ...rows,
@@ -157,7 +176,7 @@ export default extension("admin.order-details.block.render", (root, api) => {
     })
     .catch(() => {
       root.replaceChildren(
-        root.createComponent(AdminBlock, { title: "Droits au numéro" }, [
+        root.createComponent(AdminBlock, { title: "Pratico App" }, [
           root.createComponent(Text, {}, "Erreur de chargement"),
         ]),
       );

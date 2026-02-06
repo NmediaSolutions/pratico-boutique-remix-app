@@ -2,9 +2,8 @@
 
 client_id = "2141f1aa5da509dc6898971c521f6246"
 name = "pratico-boutique-remix-app"
-# Local development
-# application_url = "https://example.com"
-# Dev
+
+# Url de l'application hébergée dans google cloud run
 application_url = "https://pratico-boutique-remix-app-590721662450.northamerica-northeast1.run.app/"
 embedded = true
 
@@ -40,7 +39,7 @@ api_version = "2026-01"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products,read_products,read_metaobject_definitions,write_metaobject_definitions,read_orders,read_metaobjects,write_metaobjects,read_customers"
+scopes = "write_products,read_products,read_metaobject_definitions,write_metaobject_definitions,read_orders,write_orders,read_draft_orders,write_draft_orders,read_metaobjects,write_metaobjects,read_customers"
 
 [auth]
 redirect_urls = [
