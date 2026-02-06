@@ -10,7 +10,7 @@ interface FieldDefinition {
   validations?: Array<{ name: string; value: string }>;
 }
 
-// Complete field specifications for magazine_issue
+// Champs pour magazine_issue
 const MAGAZINE_ISSUE_FIELDS: FieldDefinition[] = [
   {
     name: "Titre du numéro",
@@ -48,7 +48,7 @@ const MAGAZINE_ISSUE_FIELDS: FieldDefinition[] = [
   },
 ];
 
-// Complete field specifications for issue_entitlement
+// Champs pour issue_entitlement
 const ISSUE_ENTITLEMENT_FIELDS: FieldDefinition[] = [
   {
     name: "Client",
@@ -78,7 +78,7 @@ const ISSUE_ENTITLEMENT_FIELDS: FieldDefinition[] = [
   },
 ];
 
-// Complete field specifications for subscription
+// Champs pour subscription
 const SUBSCRIPTION_FIELDS: FieldDefinition[] = [
   {
     name: "ID d'abonnement",
@@ -144,7 +144,7 @@ const SUBSCRIPTION_FIELDS: FieldDefinition[] = [
   },
 ];
 
-// Complete field specifications for magazine_issue_alert
+// Champs pour magazine_issue_alert
 const MAGAZINE_ISSUE_ALERT_FIELDS: FieldDefinition[] = [
   {
     name: "Type d'alerte",

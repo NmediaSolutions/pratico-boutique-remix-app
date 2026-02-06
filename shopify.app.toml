@@ -2,9 +2,8 @@
 
 client_id = "2141f1aa5da509dc6898971c521f6246"
 name = "pratico-boutique-remix-app"
-# Local development
-# application_url = "https://example.com"
-# Dev
+
+# Url de l'application hébergée dans google cloud run
 application_url = "https://pratico-boutique-remix-app-590721662450.northamerica-northeast1.run.app/"
 embedded = true
 
